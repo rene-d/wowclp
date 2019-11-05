@@ -1,0 +1,10 @@
+version: '3'
+services:
+  main:
+    build: .
+    volumes:
+      - .:/host
+      - D:\World of Warcraft\_classic_\Logs:/Logs
+    environment:
+      COMBATLOG: /Logs/WoWCombatLog.txt
+

@@ -10,18 +10,24 @@ events = {
     "UNIT_DIED": 0,  # source: nil
     "UNIT_DESTROYED": 0,  # source: nil
     #
-    "ENVIRONMENTAL_DAMAGE": 27,
-    "SPELL_DAMAGE": 29,
-    "SPELL_PERIODIC_DAMAGE": 29,
-    "SWING_DAMAGE": 26,
-    "RANGE_DAMAGE": 29,
-    #
     "SPELL_HEAL": 24,
     "SPELL_PERIODIC_HEAL": 24,
-    #
+    "SPELL_DAMAGE": 29,
+    "SPELL_PERIODIC_DAMAGE": 29,
     "SPELL_MISSED": [5, 6, 7],
+    #
+    "DAMAGE_SHIELD": 29,
+    "DAMAGE_SHIELD_MISSED": [5, 6],
+    "DAMAGE_SPLIT": 29,
+    #
+    "SWING_DAMAGE": 26,
+    "SWING_DAMAGE_LANDED": 26,
     "SWING_MISSED": [2, 3, 4],
+    #
+    "RANGE_DAMAGE": 29,
     "RANGE_MISSED": [5, 6, 7],
+    #
+    "ENVIRONMENTAL_DAMAGE": 27,
     #
     "SPELL_AURA_APPLIED": 4,
     "SPELL_AURA_REMOVED": 4,
@@ -35,23 +41,20 @@ events = {
     "SPELL_CAST_SUCCESS": 19,
     "SPELL_CAST_FAILED": 4,
     #
-    "SPELL_ABSORBED": [9, 12],
-    "SPELL_INTERRUPT": [6],
-    "SPELL_DISPEL": 7,
-    "SPELL_ENERGIZE": [23],
-    "SPELL_PERIODIC_ENERGIZE": [23],
+    "SPELL_PERIODIC_ENERGIZE": 23,
     "SPELL_PERIODIC_MISSED": [6, 7],
     "SPELL_PERIODIC_LEECH": 23,
-    "SPELL_EXTRA_ATTACKS": 4,
-    "DAMAGE_SHIELD": 29,
-    "SPELL_DRAIN": 23,
     "SPELL_PERIODIC_DRAIN": 23,
+    #
+    "SPELL_ABSORBED": [9, 12],
+    "SPELL_INTERRUPT": 6,
+    "SPELL_DISPEL": 7,
+    "SPELL_ENERGIZE": 23,
+    "SPELL_EXTRA_ATTACKS": 4,
+    "SPELL_DRAIN": 23,
     "SPELL_RESURRECT": 3,
     "SPELL_INSTAKILL": 3,
     "SPELL_SUMMON": 3,
-    #
-    "DAMAGE_SHIELD_MISSED": [5, 6],
-    "SWING_DAMAGE_LANDED": 26,
     "SPELL_CREATE": 3,
 }
 
@@ -203,19 +206,21 @@ COMBATLOG_OBJECT_FOCUS = 0x00020000
 COMBATLOG_OBJECT_TARGET = 0x00010000
 
 
-
-def find_event(event, field_count):
+def find_event(event, value_count):
+    """
+    find the event fields
+    """
 
     if event in specials:
         if isinstance(specials[event], str):
-            return find_event(specials[event], field_count)
+            return find_event(specials[event], value_count)
         else:
             a = specials[event]
             if len(a) == 0 or isinstance(a[0], str):
                 a = [a]
 
             for i in a:
-                if len(i) == field_count:
+                if len(i) == value_count:
                     return i, "="
             return None, None
 
@@ -243,27 +248,29 @@ def find_event(event, field_count):
         fields_adv = prefix_fields + advanced_fields + suffix_fields
         nb_adv = len(fields_adv)
 
-        if field_count == nb:
+        if value_count == nb:
             return fields, "="
 
-        if field_count == nb_adv:
+        if value_count == nb_adv:
             return fields_adv, "="
 
-        if field_count - nb == 1:
+        if value_count - nb == 1:
             fields.append("unknown")
             return fields, ">"
 
-        if field_count - nb == -1:
+        if value_count - nb == -1:
             return fields[:-1], "<"
 
-        if field_count - nb_adv == 1:
+        if value_count - nb_adv == 1:
             fields_adv.append("unknown")
             return fields_adv, ">"
 
-        if field_count - nb_adv == -1:
+        if value_count - nb_adv == -1:
             return fields_adv[:-1], "<"
 
-        logging.critical(f"bad event {event}. fields: {field_count}, expected: {nb} or {nb_adv}")
+        logging.critical(
+            f"bad event {event}. fields: {value_count}, expected: {nb} or {nb_adv}"
+        )
     else:
         logging.critical(f"unknown event {event}")
 
@@ -272,8 +279,11 @@ def find_event(event, field_count):
 
 signalled = set()
 
+
 def check_event(event, row):
-    global signalled
+    """
+    decode and check an event
+    """
 
     fields, state = find_event(event, len(row[9:]))
 
@@ -293,16 +303,21 @@ def check_event(event, row):
             else:
                 logging.info(f"{event} 1 missing field")
 
-            logging.debug("{} {} {} {} {}".format(event, row[2], row[6], ",".join(map(str, row[9:])), state))
+            logging.debug(
+                "{} {} {} {} {}".format(
+                    event, row[2], row[6], ",".join(map(str, row[9:])), state
+                )
+            )
             for field, value in zip(fields, row[9:]):
                 logging.debug(f"{field:>25}: {str(value)}")
 
     return fields, state
 
 
-
-
 class Entity:
+    """
+    game entity (player, creature, pet, ...)
+    """
     def __init__(self, id, name, flags, raid_flags):
         self.guid = id  # https://wow.gamepedia.com/GUID
         self.name = name
@@ -310,22 +325,31 @@ class Entity:
         self.raid_flags = int(raid_flags, 16)  # https://wow.gamepedia.com/RaidFlag
 
     def __str__(self):
-        return "{:40} {:32} 0x{:x} 0x{:x}".format(self.guid, self.name, self.flags, self.raid_flags)
+        return "{:40} {:32} 0x{:x} 0x{:x}".format(
+            self.guid, self.name, self.flags, self.raid_flags
+        )
 
 
-class LogInfo:
+class LogParser:
+    """
+    class to parse WoWCombatLog.txt file
+    """
     def __init__(self):
         self.event_filter_include = set()
         self.event_filter_exclude = set()
+        self.flag_print = False
 
-    def Parse(self, filename):
-        # parsing a new file, reset some of the instance variables
+    def set_print(self, flag):
+        self.flag_print = flag
+
+    def parse(self, filename):
+        """ parse a combatlog file """
         self.encounters = []
         self.total_line_count = 0
         self.parsed_line_count = 0
-        entities = {}
 
         version = ""
+        entities = {}
 
         reader = csv.reader(open(filename))
         for row in reader:
@@ -339,26 +363,26 @@ class LogInfo:
 
             if event == "COMBAT_LOG_VERSION":
                 version = f"version={row[1]} adv={row[3]} game={row[5]}/{row[7]}"
+                logging.debug(version)
                 continue
+
+            ########################
+            if self.event_filter_include:
+                if event not in self.event_filter_include:
+                    continue
+            elif self.event_filter_exclude:
+                if event in self.event_filter_exclude:
+                    continue
 
             source = Entity(*row[1:5])
             dest = Entity(*row[5:9])
 
-            def test(e):
-                if e.guid not in entities:
-                    entities[e.guid] = e
-                else:
-                    pass
-                    # if e.name != entities[e.guid].name and entities[e.guid].name != 'Unknown':
-                    #     if e.name not in signalled:
-                    #         signalled.add(e.name)
-                    #         print()
-                    #         print(e)
-                    #         print(entities[e.guid])
+            # if source.guid not in entities:
+            #     entities[source.guid] = source
+            # if dest.guid not in entities:
+            #     entities[dest.guid] = source
 
-            test(source)
-            test(dest)
-
+            ########################
             if event in events:
                 e = events[event]
 
@@ -374,37 +398,33 @@ class LogInfo:
                     if len(row) == 1 + 4 + 4 + i:
                         break
                 else:
-                    logging.error("event %s: bad number of fields: %d excepted: %r", event, len(row) - 9, fields)
+                    logging.error(
+                        "event %s: bad number of fields: %d excepted: %r",
+                        event,
+                        len(row) - 9,
+                        fields,
+                    )
                     print(",".join(map(str, row)))
                     exit(2)
             else:
                 logging.critical("unknown event %s", event)
-                print(",".join(map(str, row)))
-                print(len(row) - 9)
+                logging.critical("%s %d", ",".join(map(str, row)), len(row) - 9)
                 exit(2)
-
-            ########################
-            if self.event_filter_include:
-                if event not in self.event_filter_include:
-                    continue
-            elif self.event_filter_exclude:
-                if event in self.event_filter_exclude:
-                    continue
 
             ########################
             fields, state = check_event(event, row)
 
-            data = {}
-            for i, field in enumerate(fields, 9):
-                data[field] = row[i]
+            if self.flag_print:
+                print(",".join(row))
+                print(f"{'event':>25}: {event}")
+                print(f"{'timestamp':>25}: {timestamp}")
+                print(f"{'source':>25}: {source}")
+                print(f"{'dest':>25}: {dest}")
 
-                # print(f"{field:>25}: {row[i]}")
+                for i, field in enumerate(fields, 9):
+                    print(f"{field:>25}: {row[i]}")
 
-            # if data["critical"] != "0":
-            #     print("ok")
-            #     exit(0)
+            # data = {}
+            # for i, field in enumerate(fields, 9):
+            #     data[field] = row[i]
 
-        # for i in entities.values():
-        #     print(i)
-
-        return []
