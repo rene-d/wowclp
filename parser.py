@@ -1,6 +1,7 @@
 import sys
 import csv
 import logging
+import itertools
 
 
 events = {
@@ -202,8 +203,6 @@ COMBATLOG_OBJECT_FOCUS = 0x00020000
 COMBATLOG_OBJECT_TARGET = 0x00010000
 
 
-signalled = set()
-
 
 def find_event(event, field_count):
 
@@ -251,29 +250,17 @@ def find_event(event, field_count):
             return fields_adv, "="
 
         if field_count - nb == 1:
-            if event + "+1" not in signalled:
-                signalled.add(event + "+1")
-                logging.info(f"{event} 1 extra field")
             fields.append("unknown")
             return fields, ">"
 
         if field_count - nb == -1:
-            if event + "-1" not in signalled:
-                signalled.add(event + "-1")
-                logging.info(f"{event} 1 missing field")
             return fields[:-1], "<"
 
         if field_count - nb_adv == 1:
-            if event + "+a1" not in signalled:
-                signalled.add(event + "+a1")
-                logging.info(f"{event} 1 extra field")
             fields_adv.append("unknown")
             return fields_adv, ">"
 
         if field_count - nb_adv == -1:
-            if event + "-a" not in signalled:
-                signalled.add(event + "-a1")
-                logging.info(f"{event} 1 missing field")
             return fields_adv[:-1], "<"
 
         logging.critical(f"bad event {event}. fields: {field_count}, expected: {nb} or {nb_adv}")
@@ -281,6 +268,38 @@ def find_event(event, field_count):
         logging.critical(f"unknown event {event}")
 
     return None, None
+
+
+signalled = set()
+
+def check_event(event, row):
+    global signalled
+
+    fields, state = find_event(event, len(row[9:]))
+
+    if fields is None:
+        logging.error(event)
+        # logging.error(source)
+        # logging.error(dest)
+        logging.error(" | ".join(row[9:]))
+        exit(2)
+
+    if state != "=":
+        if event + state not in signalled:
+            signalled.add(event + state)
+
+            if state == ">":
+                logging.info(f"{event} 1 extra field")
+            else:
+                logging.info(f"{event} 1 missing field")
+
+            logging.debug("{} {} {} {} {}".format(event, row[2], row[6], ",".join(map(str, row[9:])), state))
+            for field, value in zip(fields, row[9:]):
+                logging.debug(f"{field:>25}: {str(value)}")
+
+    return fields, state
+
+
 
 
 class Entity:
@@ -296,7 +315,8 @@ class Entity:
 
 class LogInfo:
     def __init__(self):
-        self.event_filter = set()
+        self.event_filter_include = set()
+        self.event_filter_exclude = set()
 
     def Parse(self, filename):
         # parsing a new file, reset some of the instance variables
@@ -317,7 +337,6 @@ class LogInfo:
             # two spaces are used to split the date/time field from the actual combat data
             timestamp, event = row[0].split("  ")
 
-            # print(timestamp, event, *row[1:])
             if event == "COMBAT_LOG_VERSION":
                 version = f"version={row[1]} adv={row[3]} game={row[5]}/{row[7]}"
                 continue
@@ -330,8 +349,9 @@ class LogInfo:
                     entities[e.guid] = e
                 else:
                     pass
-                    # if e.name != entities[e.guid].name:
-                    #     if e.name != "Inconnu" and entities[e.guid].name != "Inconnu":
+                    # if e.name != entities[e.guid].name and entities[e.guid].name != 'Unknown':
+                    #     if e.name not in signalled:
+                    #         signalled.add(e.name)
                     #         print()
                     #         print(e)
                     #         print(entities[e.guid])
@@ -364,22 +384,15 @@ class LogInfo:
                 exit(2)
 
             ########################
-            if self.event_filter:
-                if event not in self.event_filter:
+            if self.event_filter_include:
+                if event not in self.event_filter_include:
+                    continue
+            elif self.event_filter_exclude:
+                if event in self.event_filter_exclude:
                     continue
 
             ########################
-            fields, state = find_event(event, len(row) - 9)
-
-            if fields is None:
-                print(event)
-                print(source)
-                print(dest)
-                print(" | ".join(row[9:]))
-                print("exit")
-                exit(2)
-
-            logging.debug("{} {:40} {:40} {} {}".format(event, row[2], row[6], ",".join(map(str, row[9:])), state))
+            fields, state = check_event(event, row)
 
             data = {}
             for i, field in enumerate(fields, 9):
@@ -387,9 +400,9 @@ class LogInfo:
 
                 # print(f"{field:>25}: {row[i]}")
 
-            if data["critical"] != "0":
-                print("ok")
-                exit(0)
+            # if data["critical"] != "0":
+            #     print("ok")
+            #     exit(0)
 
         # for i in entities.values():
         #     print(i)

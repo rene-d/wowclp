@@ -7,19 +7,22 @@ import click
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
-@click.option("-v", "--verbose", is_flag=True, default=False, help="verbose mode")
+@click.option("-v", "--verbose", help="verbose mode", count=True)
 @click.option("-i", "--input", default="WoWCombatLog.txt", help="")
-@click.option("-e", "--event", help="")
-def main(verbose, input, event):
+@click.option("-e", "--include", help="process only event", multiple=True)
+@click.option("-x", "--exclude", help="exclude event", multiple=True)
+def main(verbose, input, include, exclude):
 
-    if verbose:
+    if verbose > 0:
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(message)s")
     else:
         logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(message)s")
 
     log_info = parser.LogInfo()
-    if event:
-        log_info.event_filter.add(event)
+    if include:
+        log_info.event_filter_include = set(map(str.upper, include))
+    if exclude:
+        log_info.event_filter_exclude = set(map(str.upper, exclude))
     log_info.Parse(input)
 
 
