@@ -42,7 +42,7 @@ events = {
     "SPELL_CAST_FAILED": 4,
     #
     "SPELL_PERIODIC_ENERGIZE": 23,
-    "SPELL_PERIODIC_MISSED": [6, 7],
+    "SPELL_PERIODIC_MISSED": [5, 6, 7],
     "SPELL_PERIODIC_LEECH": 23,
     "SPELL_PERIODIC_DRAIN": 23,
     #
@@ -348,83 +348,89 @@ class LogParser:
         self.total_line_count = 0
         self.parsed_line_count = 0
 
-        version = ""
-        entities = {}
+        self.version = ""
+        self.entities = {}
 
-        reader = csv.reader(open(filename))
-        for row in reader:
-            # print(row)
+        try:
+            reader = csv.reader(open(filename))
+            for row in reader:
+                # print(row)
 
-            # bump line counter
-            self.total_line_count += 1
+                # bump line counter
+                self.total_line_count += 1
 
-            # two spaces are used to split the date/time field from the actual combat data
-            timestamp, event = row[0].split("  ")
+                self.parse_row(row)
 
-            if event == "COMBAT_LOG_VERSION":
-                version = f"version={row[1]} adv={row[3]} game={row[5]}/{row[7]}"
-                logging.debug(version)
-                continue
+        except csv.Error as e:
+            logging.error(f"CSV ERROR {e}")
 
-            ########################
-            if self.event_filter_include:
-                if event not in self.event_filter_include:
-                    continue
-            elif self.event_filter_exclude:
-                if event in self.event_filter_exclude:
-                    continue
+    def parse_row(self, row):
 
-            source = Entity(*row[1:5])
-            dest = Entity(*row[5:9])
+        # two spaces are used to split the date/time field from the actual combat data
+        timestamp, event = row[0].split("  ")
 
-            # if source.guid not in entities:
-            #     entities[source.guid] = source
-            # if dest.guid not in entities:
-            #     entities[dest.guid] = source
+        if event == "COMBAT_LOG_VERSION":
+            self.version = f"version={row[1]} adv={row[3]} game={row[5]}/{row[7]}"
+            logging.debug(self.version)
+            return
 
-            ########################
-            if event in events:
-                e = events[event]
+        ########################
+        if self.event_filter_include:
+            if event not in self.event_filter_include:
+                return
+        elif self.event_filter_exclude:
+            if event in self.event_filter_exclude:
+                return
 
-                if isinstance(e, int):
-                    fields = [e]
-                elif isinstance(e, list):
-                    fields = e
-                else:
-                    logging.critical("bad events table")
-                    exit(2)
+        source = Entity(*row[1:5])
+        dest = Entity(*row[5:9])
+        # if source.guid not in entities:
+        #     entities[source.guid] = source
+        # if dest.guid not in entities:
+        #     entities[dest.guid] = source
 
-                for i in fields:
-                    if len(row) == 1 + 4 + 4 + i:
-                        break
-                else:
-                    logging.error(
-                        "event %s: bad number of fields: %d excepted: %r",
-                        event,
-                        len(row) - 9,
-                        fields,
-                    )
-                    print(",".join(map(str, row)))
-                    exit(2)
+        ########################
+        if event in events:
+            e = events[event]
+
+            if isinstance(e, int):
+                fields = [e]
+            elif isinstance(e, list):
+                fields = e
             else:
-                logging.critical("unknown event %s", event)
-                logging.critical("%s %d", ",".join(map(str, row)), len(row) - 9)
+                logging.critical("bad events table")
                 exit(2)
 
-            ########################
-            fields, state = check_event(event, row)
+            for i in fields:
+                if len(row) == 1 + 4 + 4 + i:
+                    break
+            else:
+                logging.error(
+                    "event %s: bad number of fields: %d excepted: %r",
+                    event,
+                    len(row) - 9,
+                    fields,
+                )
+                print(",".join(map(str, row)))
+                exit(2)
+        else:
+            logging.critical("unknown event %s", event)
+            logging.critical("%s %d", ",".join(map(str, row)), len(row) - 9)
+            exit(2)
 
-            if self.flag_print:
-                print(",".join(row))
-                print(f"{'event':>25}: {event}")
-                print(f"{'timestamp':>25}: {timestamp}")
-                print(f"{'source':>25}: {source}")
-                print(f"{'dest':>25}: {dest}")
+        ########################
+        fields, state = check_event(event, row)
 
-                for i, field in enumerate(fields, 9):
-                    print(f"{field:>25}: {row[i]}")
+        if self.flag_print:
+            print(",".join(row))
+            print(f"{'event':>25}: {event}")
+            print(f"{'timestamp':>25}: {timestamp}")
+            print(f"{'source':>25}: {source}")
+            print(f"{'dest':>25}: {dest}")
 
-            # data = {}
-            # for i, field in enumerate(fields, 9):
-            #     data[field] = row[i]
+            for i, field in enumerate(fields, 9):
+                print(f"{field:>25}: {row[i]}")
 
+        # data = {}
+        # for i, field in enumerate(fields, 9):
+        #     data[field] = row[i]
