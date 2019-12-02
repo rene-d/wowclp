@@ -1,179 +1,11 @@
 import sys
 import csv
 import logging
+import collections
 import itertools
+import combatlog9
+import combatlog12
 
-
-events = {
-    #
-    "PARTY_KILL": 0,  # source: killer, dest: killed
-    "UNIT_DIED": 0,  # source: nil
-    "UNIT_DESTROYED": 0,  # source: nil
-    #
-    "SPELL_HEAL": 24,
-    "SPELL_PERIODIC_HEAL": 24,
-    "SPELL_DAMAGE": 29,
-    "SPELL_PERIODIC_DAMAGE": 29,
-    "SPELL_MISSED": [5, 6, 7],
-    #
-    "DAMAGE_SHIELD": 29,
-    "DAMAGE_SHIELD_MISSED": [5, 6],
-    "DAMAGE_SPLIT": 29,
-    #
-    "SWING_DAMAGE": 26,
-    "SWING_DAMAGE_LANDED": 26,
-    "SWING_MISSED": [2, 3, 4],
-    #
-    "RANGE_DAMAGE": 29,
-    "RANGE_MISSED": [5, 6, 7],
-    #
-    "ENVIRONMENTAL_DAMAGE": 27,
-    #
-    "SPELL_AURA_APPLIED": 4,
-    "SPELL_AURA_REMOVED": 4,
-    "SPELL_AURA_BROKEN": 4,
-    "SPELL_AURA_BROKEN_SPELL": 7,
-    "SPELL_AURA_APPLIED_DOSE": 5,
-    "SPELL_AURA_REMOVED_DOSE": 5,
-    "SPELL_AURA_REFRESH": 4,
-    #
-    "SPELL_CAST_START": 3,
-    "SPELL_CAST_SUCCESS": 19,
-    "SPELL_CAST_FAILED": 4,
-    #
-    "SPELL_PERIODIC_ENERGIZE": 23,
-    "SPELL_PERIODIC_MISSED": [5, 6, 7],
-    "SPELL_PERIODIC_LEECH": 23,
-    "SPELL_PERIODIC_DRAIN": 23,
-    #
-    "SPELL_ABSORBED": [9, 12],
-    "SPELL_INTERRUPT": 6,
-    "SPELL_DISPEL": 7,
-    "SPELL_ENERGIZE": 23,
-    "SPELL_EXTRA_ATTACKS": 4,
-    "SPELL_DRAIN": 23,
-    "SPELL_RESURRECT": 3,
-    "SPELL_INSTAKILL": 3,
-    "SPELL_SUMMON": 3,
-    "SPELL_CREATE": 3,
-}
-
-# https://wow.gamepedia.com/COMBAT_LOG_EVENT
-prefixes = {
-    "SWING": [],
-    "RANGE": ["spellId", "spellName", "spellSchool"],
-    "SPELL": ["spellId", "spellName", "spellSchool"],
-    "SPELL_PERIODIC": ["spellId", "spellName", "spellSchool"],
-    "SPELL_BUILDING": ["spellId", "spellName", "spellSchool"],
-    "ENVIRONMENTAL": ["environmentalType"],
-}
-
-suffixes = {
-    "_DAMAGE": [
-        "amount",
-        "overkill",
-        "school",
-        "resisted",
-        "blocked",
-        "absorbed",
-        "critical",
-        "glancing",
-        "crushing",
-        "isOffHand",
-    ],
-    "_MISSED": ["missType", "isOffHand", "amountMissed"],
-    "_HEAL": ["amount", "overhealing", "absorbed", "critical"],
-    "_ENERGIZE": ["amount", "overEnergize", "powerType", "alternatePowerType"],
-    "_DRAIN": ["amount", "powerType", "extraAmount"],
-    "_LEECH": ["amount", "powerType", "extraAmount"],
-    "_INTERRUPT": ["extraSpellId", "extraSpellName", "extraSchool"],
-    "_DISPEL": ["extraSpellId", "extraSpellName", "extraSchool", "auraType"],
-    "_DISPEL_FAILED": ["extraSpellId", "extraSpellName", "extraSchool"],
-    "_STOLEN": ["extraSpellId", "extraSpellName", "extraSchool", "auraType"],
-    "_EXTRA_ATTACKS": ["amount"],
-    "_AURA_APPLIED": ["auraType", "amount"],
-    "_AURA_REMOVED": ["auraType", "amount"],
-    "_AURA_APPLIED_DOSE": ["auraType", "amount"],
-    "_AURA_REMOVED_DOSE": ["auraType", "amount"],
-    "_AURA_REFRESH": ["auraType", "amount"],
-    "_AURA_BROKEN": ["auraType"],
-    "_AURA_BROKEN_SPELL": ["extraSpellId", "extraSpellName", "extraSchool", "auraType"],
-    "_CAST_START": [],
-    "_CAST_SUCCESS": [],
-    "_CAST_FAILED": ["failedType"],
-    "_INSTAKILL": [],
-    "_DURABILITY_DAMAGE": [],
-    "_DURABILITY_DAMAGE_ALL": [],
-    "_CREATE": [],
-    "_SUMMON": [],
-    "_RESURRECT": [],
-    # "_ABSORBED": ["amount"],
-}
-
-advanced_fields = [
-    "unitGUID",
-    "ownerGUID",
-    "currHp",
-    "maxHp",
-    "attackPower",
-    "spellPower",
-    "armor",
-    "resourceType",
-    "currResource",
-    "maxResource",
-    "resourceCost",
-    "coord",
-    "coord",
-    "UiMapID",
-    "facing",
-    "itemLevel/level",
-]
-
-specials = {
-    "SPELL_ABSORBED": [
-        [
-            # magical damage absorb
-            "damageSpellId",
-            "damageSpellName",
-            "damageSpellSchool",
-            "originGuid",
-            "originName",
-            "originFlags",
-            "originRaidFlags",
-            "spellId",
-            "spellName",
-            "spellSchool",
-            "amount",
-            "amount2",
-        ],
-        [
-            # physical damage absorb
-            "originGuid",
-            "originName",
-            "originFlags",
-            "originRaidFlags",
-            "spellId",
-            "spellName",
-            "spellSchool",
-            "amount",
-            "amount2",
-        ],
-    ],
-    #
-    "DAMAGE_SHIELD": "SPELL_DAMAGE",
-    "DAMAGE_SPLIT": "SPELL_DAMAGE",
-    "DAMAGE_SHIELD_MISSED": "SPELL_MISSED",
-    "SWING_DAMAGE_LANDED": "SWING_DAMAGE",
-    "SPELL_CREATE": "SPELL_SUMMON",
-    #
-    "ENCHANT_APPLIED": ["spellName", "itemID", "itemName"],
-    "ENCHANT_REMOVED": ["spellName", "itemID", "itemName"],
-    #
-    "PARTY_KILL": [],
-    "UNIT_DIED": [[], ["recapID", "unconsciousOnDeath"]],
-    "UNIT_DESTROYED": [[], ["recapID", "unconsciousOnDeath"]],
-    "UNIT_DISSIPATES": ["recapID", "unconsciousOnDeath"],
-}
 
 # Type
 COMBATLOG_OBJECT_TYPE_MASK = 0x0000FC00
@@ -206,118 +38,12 @@ COMBATLOG_OBJECT_FOCUS = 0x00020000
 COMBATLOG_OBJECT_TARGET = 0x00010000
 
 
-def find_event(event, value_count):
-    """
-    find the event fields
-    """
-
-    if event in specials:
-        if isinstance(specials[event], str):
-            return find_event(specials[event], value_count)
-        else:
-            a = specials[event]
-            if len(a) == 0 or isinstance(a[0], str):
-                a = [a]
-
-            for i in a:
-                if len(i) == value_count:
-                    return i, "="
-            return None, None
-
-    prefix = ""
-    prefix_length = 0
-    prefix_fields = None
-    for k, v in prefixes.items():
-        if event.startswith(k) and len(k) > prefix_length:
-            prefix_length = len(k)
-            prefix = k
-            prefix_fields = v
-
-    suffix = ""
-    suffix_length = 0
-    suffix_fields = None
-    for k, v in suffixes.items():
-        if event.endswith(k) and len(k) > suffix_length:
-            suffix_length = len(k)
-            suffix = k
-            suffix_fields = v
-
-    if event == prefix + suffix:
-        fields = prefix_fields + suffix_fields
-        nb = len(fields)
-        fields_adv = prefix_fields + advanced_fields + suffix_fields
-        nb_adv = len(fields_adv)
-
-        if value_count == nb:
-            return fields, "="
-
-        if value_count == nb_adv:
-            return fields_adv, "="
-
-        if value_count - nb == 1:
-            fields.append("unknown")
-            return fields, ">"
-
-        if value_count - nb == -1:
-            return fields[:-1], "<"
-
-        if value_count - nb_adv == 1:
-            fields_adv.append("unknown")
-            return fields_adv, ">"
-
-        if value_count - nb_adv == -1:
-            return fields_adv[:-1], "<"
-
-        logging.critical(
-            f"bad event {event}. fields: {value_count}, expected: {nb} or {nb_adv}"
-        )
-    else:
-        logging.critical(f"unknown event {event}")
-
-    return None, None
-
-
-signalled = set()
-
-
-def check_event(event, row):
-    """
-    decode and check an event
-    """
-
-    fields, state = find_event(event, len(row[9:]))
-
-    if fields is None:
-        logging.error(event)
-        # logging.error(source)
-        # logging.error(dest)
-        logging.error(" | ".join(row[9:]))
-        exit(2)
-
-    if state != "=":
-        if event + state not in signalled:
-            signalled.add(event + state)
-
-            if state == ">":
-                logging.info(f"{event} 1 extra field")
-            else:
-                logging.info(f"{event} 1 missing field")
-
-            logging.debug(
-                "{} {} {} {} {}".format(
-                    event, row[2], row[6], ",".join(map(str, row[9:])), state
-                )
-            )
-            for field, value in zip(fields, row[9:]):
-                logging.debug(f"{field:>25}: {str(value)}")
-
-    return fields, state
-
 
 class Entity:
     """
     game entity (player, creature, pet, ...)
     """
+
     def __init__(self, id, name, flags, raid_flags):
         self.guid = id  # https://wow.gamepedia.com/GUID
         self.name = name
@@ -334,13 +60,23 @@ class LogParser:
     """
     class to parse WoWCombatLog.txt file
     """
+
     def __init__(self):
         self.event_filter_include = set()
         self.event_filter_exclude = set()
         self.flag_print = False
+        self.combatlog = None
+        self.signalled = set()
+        self.with_adv = set()
+        self.without_adv = set()
+        self.flag_count = False
+        self.fields_count = dict()
 
     def set_print(self, flag):
         self.flag_print = flag
+
+    def set_count(self, flag):
+        self.flag_count = flag
 
     def parse(self, filename):
         """ parse a combatlog file """
@@ -364,14 +100,73 @@ class LogParser:
         except csv.Error as e:
             logging.error(f"CSV ERROR {e}")
 
+        if self.flag_count:
+            for k, v in sorted(self.fields_count.items()):
+                print(f"{k:32} {' '.join(map(str, v))}")
+
+            def rev_key(a):
+                return a
+                # return "".join(reversed(a))
+
+            t = dict()
+            for k in sorted(self.fields_count.keys(), key=rev_key):
+                s = self.fields_count[k]
+                if len(s) == 1:
+                    t[k] = s.pop()
+                else:
+                    t[k] = list(s)
+            print(t)
+
+            return
+
+        # print(self.without_adv)
+        # print(self.with_adv)
+        # print(self.without_adv.intersection(self.with_adv))
+
+
     def parse_row(self, row):
 
         # two spaces are used to split the date/time field from the actual combat data
         timestamp, event = row[0].split("  ")
 
+
         if event == "COMBAT_LOG_VERSION":
-            self.version = f"version={row[1]} adv={row[3]} game={row[5]}/{row[7]}"
-            logging.debug(self.version)
+            self.version = f"version={row[1]} adv={row[3]} game={{build: {row[5]}/project: {row[7]}}}"
+            logging.info("{} {} {}".format(timestamp, event, self.version))
+            if row[1] == "9":
+                self.combatlog = combatlog9
+            elif row[1] == "12":
+                self.combatlog = combatlog12
+            else:
+                logging.error(f"unknown version: {row[1]}")
+                self.combatlog = None
+            return
+
+        if event == "ENCOUNTER_START":
+            logging.info("{} {} {}".format(timestamp, event, ",".join(row[1:])))
+            return
+
+        if event == "ENCOUNTER_END":
+            logging.info("{} {} {}".format(timestamp, event, ",".join(row[1:])))
+            return
+
+        if event == "COMBATANT_INFO":
+            return
+
+        if event == "ZONE_CHANGE":
+            logging.info("{} {} {}".format(timestamp, event, ",".join(row[1:])))
+            return
+
+        if self.flag_count:
+            n = len(row) - 9
+            c = self.fields_count.get(event, set())
+            if n not in c:
+                c.add(n)
+                self.fields_count[event] = c
+            return
+
+        cl = self.combatlog
+        if cl is None:
             return
 
         ########################
@@ -382,16 +177,20 @@ class LogParser:
             if event in self.event_filter_exclude:
                 return
 
-        source = Entity(*row[1:5])
-        dest = Entity(*row[5:9])
-        # if source.guid not in entities:
-        #     entities[source.guid] = source
-        # if dest.guid not in entities:
-        #     entities[dest.guid] = source
+        try:
+            source = Entity(*row[1:5])
+            dest = Entity(*row[5:9])
+            # if source.guid not in entities:
+            #     entities[source.guid] = source
+            # if dest.guid not in entities:
+            #     entities[dest.guid] = source
+        except TypeError:
+            logging.error(f"{row}")
+            exit()
 
         ########################
-        if event in events:
-            e = events[event]
+        if event in cl.events:
+            e = cl.events[event]
 
             if isinstance(e, int):
                 fields = [e]
@@ -419,18 +218,138 @@ class LogParser:
             exit(2)
 
         ########################
-        fields, state = check_event(event, row)
+
+        fields, state = self.check_event(event, row)
 
         if self.flag_print:
             print(",".join(row))
-            print(f"{'event':>25}: {event}")
-            print(f"{'timestamp':>25}: {timestamp}")
-            print(f"{'source':>25}: {source}")
-            print(f"{'dest':>25}: {dest}")
+            print(f"\033[34m{'event':>25}: {event}\033[0m")
+            print(f"\033[34m{'timestamp':>25}: {timestamp}\033[0m")
+            print(f"\033[32m{'source':>25}: {source}\033[0m")
+            print(f"\033[95m{'dest':>25}: {dest}\033[0m")
 
             for i, field in enumerate(fields, 9):
-                print(f"{field:>25}: {row[i]}")
+                print(f"\033[33m{field:>25}: {row[i]}\033[0m")
 
         # data = {}
         # for i, field in enumerate(fields, 9):
         #     data[field] = row[i]
+
+
+
+    def find_event(self, event, value_count):
+        """
+        find the event fields
+        """
+
+        prefixes = self.combatlog.prefixes
+        suffixes = self.combatlog.suffixes
+        specials = self.combatlog.specials
+        advanced_fields = self.combatlog.advanced_fields
+
+        if event in specials:
+            if isinstance(specials[event], str):
+                return self.find_event(specials[event], value_count)
+            else:
+                a = specials[event]
+                if len(a) == 0 or isinstance(a[0], str):
+                    a = [a]
+
+                for i in a:
+                    if len(i) == value_count:
+                        return i, "="
+                return None, None
+
+        prefix = ""
+        prefix_length = 0
+        prefix_fields = None
+        for k, v in prefixes.items():
+            if event.startswith(k) and len(k) > prefix_length:
+                prefix_length = len(k)
+                prefix = k
+                prefix_fields = v
+
+        suffix = ""
+        suffix_length = 0
+        suffix_fields = None
+        for k, v in suffixes.items():
+            if event.endswith(k) and len(k) > suffix_length:
+                suffix_length = len(k)
+                suffix = k
+                suffix_fields = v
+
+        if event == prefix + suffix:
+            fields = prefix_fields + suffix_fields
+            nb = len(fields)
+            fields_adv = prefix_fields + advanced_fields + suffix_fields
+            nb_adv = len(fields_adv)
+
+            if value_count == nb:
+                self.without_adv.add(event)
+                return fields, "="
+
+            if value_count == nb_adv:
+                self.with_adv.add(event)
+                return fields_adv, "="
+
+            if value_count - nb == 1:
+                self.without_adv.add(event)
+                fields.append("unknown")
+                return fields, ">"
+
+            if value_count - nb == -1:
+                self.without_adv.add(event)
+                return fields[:-1], "<"
+
+            if value_count - nb_adv == 1:
+                self.with_adv.add(event)
+                fields_adv.append("unknown")
+                return fields_adv, ">"
+
+            if value_count - nb_adv == -1:
+                self.with_adv.add(event)
+                return fields_adv[:-1], "<"
+
+            logging.critical(
+                f"bad event {event}. fields: {value_count}, expected: {nb} or {nb_adv}"
+            )
+        else:
+            logging.critical(f"unknown event {event}")
+
+        return None, None
+
+
+    def check_event(self, event, row):
+        """
+        decode and check an event
+        """
+
+        fields, state = self.find_event(event, len(row[9:]))
+
+        if fields is None:
+            logging.error(event)
+            # logging.error(source)
+            # logging.error(dest)
+            logging.error(" | ".join(row[9:]))
+            exit(2)
+
+        if state != "=":
+            if event + state not in self.signalled:
+                self.signalled.add(event + state)
+
+                if state == ">":
+                    # logging.info(f"{event} 1 extra field")
+                    pass
+                else:
+                    # logging.info(f"{event} 1 missing field")
+                    pass
+
+                logging.debug(
+                    "{},{},{},{},{}".format(
+                        event, row[2], row[6], ",".join(map(str, row[9:])), state
+                    )
+                )
+                for field, value in zip(fields, row[9:]):
+                    logging.debug(f"{field:>25}: {str(value)}")
+
+        return fields, state

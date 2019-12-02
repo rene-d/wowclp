@@ -5,6 +5,9 @@ services:
     volumes:
       - .:/host
       - D:\World of Warcraft\_classic_\Logs:/Logs
+      - D:\World of Warcraft\_classic_:/_classic_
+      - C:\Program Files (x86)\World of Warcraft\_retail_\Logs:/LogsRetail
+      - C:\Program Files (x86)\World of Warcraft\_retail_:/_retail_
     environment:
       COMBATLOG: /Logs/WoWCombatLog.txt
 

@@ -12,7 +12,8 @@ import click
 @click.option("-e", "--include", help="process only event", multiple=True)
 @click.option("-x", "--exclude", help="exclude event", multiple=True)
 @click.option("-p", "--print", "flag_print", is_flag=True, help="print decoded events")
-def main(verbose, input, include, exclude, flag_print):
+@click.option("-c", "--count", help="count fields", is_flag=True)
+def main(verbose, input, include, exclude, flag_print, count):
 
     if verbose > 0:
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(message)s")
@@ -23,6 +24,7 @@ def main(verbose, input, include, exclude, flag_print):
     log_info.event_filter_include = set(map(str.upper, include))
     log_info.event_filter_exclude = set(map(str.upper, exclude))
     log_info.set_print(flag_print)
+    log_info.set_count(count)
     log_info.parse(input)
 
 
